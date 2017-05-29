@@ -16,15 +16,14 @@
 
 /* Pin definitions: */
 #define RX D1
-#define RX D2
+#define TX D2
 
-
-#define PUSH_DATA_FREQUENCY 20 // Frequency of pushing data in seconds
 
 SoftwareSerial softSerial = SoftwareSerial(RX, TX);
 
+String data_string = "";
+String last_data_string="";
 
-long int next_push_time = 0;
 String esid;
 long rssi;
 long wifi_strength;
@@ -35,51 +34,63 @@ IPAddress ip(192, 168, 1, 99); // where xx is the desired IP Address
 IPAddress gateway(192, 168, 1, 1); // set gateway to match your network
 
 
+int num_bytes = 0; // Number of bytes to read
+int bytes_read = 0; // Number currently read
 
 void setup() {
   Serial.begin(9600);
   delay(10);
   softSerial.begin(9600);
+  softSerial.flush();
 
   // Start the server
   server.begin();
   Serial.println("Server started");
 
   setupWifi();
-
   setupATO();
-
-
-
-
-
   pinMode(2, OUTPUT);
-
-
-
 }
 
 
 
 void loop() {
 
+
   ArduinoOTA.handle();
 
   if ( softSerial.available()) {
-    char rec = softSerial.read();
+
+    if ( num_bytes == 0 ) {
+      num_bytes = (int)softSerial.read();
+      Serial.print("Num bytes to read from Arduino =");
+      Serial.println(num_bytes);
+    } else {
+      char c = softSerial.read();
+      data_string += c;
+      bytes_read++;
+      // If we have read the whole string post it to server and acknowledge it to the Arduino
+      if ( num_bytes == bytes_read ) {
+        softSerial.write('O');
+        softSerial.write('K');
+        post_data(data_string);
+        last_data_string = data_string;
+        data_string = "";
+        num_bytes = 0;
+        bytes_read = 0;
+      }
+    }
+
+
   }
 
 
   handleWebServer();
 
-  pushData();
-
 
 }
 
 void setupATO() {
-
-
   ArduinoOTA.setHostname("GardenLabESP8266");
   ArduinoOTA.setPassword("admin");
 
@@ -106,9 +117,9 @@ void setupATO() {
   Serial.println(WiFi.localIP());
 }
 
+
+
 void setupWifi() {
-
-
   EEPROM.begin(512);
   // read eeprom for ssid and pass
   Serial.println("Reading EEPROM ssid");
@@ -126,9 +137,6 @@ void setupWifi() {
   }
   Serial.print("PASS: ");
   Serial.println(epass);
-
-
-
   Serial.print(F("Setting static ip to : "));
   Serial.println(ip);
 
@@ -183,25 +191,29 @@ void handleWebServer() {
   client.println(""); //  do not forget this one
   client.println("<!DOCTYPE HTML>");
   client.println("<html>");
-  client.println("<meta http-equiv='refresh' content='10'>");
+  client.println("<meta http-equiv='refresh' content='120'>");
 
   client.print("<H1>Welcome to The Garden Lab");
   client.print(" </H1>");
   client.print("<h3>Wifi Strength is: ");
   client.print(wifi_strength);
-  client.print("% <br>");
+  client.print("% <br><br>");
 
-  client.print("<canvas id=\"myCanvas\" width=\"300\" height=\"25\" style=\"border:1px solid #000000;\"></canvas><br><br>");
+  client.print("<canvas id=\"myCanvas\" width=\"300\" height=\"15\" style=\"border:1px solid #000000;\"></canvas><br><br>");
 
   client.print("<script>");
   client.print("var c = document.getElementById(\"myCanvas\");");
   client.print("var ctx = c.getContext(\"2d\");");
   client.print("ctx.fillStyle = \"#FF0000\";");
   wifi_strength = (int)(wifi_strength / 100.0 * 300);
-  snprintf(buff, sizeof(buff), "ctx.fillRect(0,0,%d,25);", wifi_strength);
+  snprintf(buff, sizeof(buff), "ctx.fillRect(0,0,%d,15);", wifi_strength);
   client.print(buff);
   client.println("</script></H3>");
 
+
+  client.println("<H3> Last data string </H3> <br><pre>");
+  client.println( last_data_string );
+  client.println("</pre>");
 
   client.println("</html>");
 
@@ -211,14 +223,11 @@ void handleWebServer() {
 }
 
 
-void pushData() {
+void post_data(const String& dstring) {
 
-  if ( next_push_time != 0 && next_push_time > millis() ) {
-    return;
-  }
-  next_push_time = millis() + PUSH_DATA_FREQUENCY * 1000;
 
-  Serial.println("Pushing data");
+  Serial.println("Posting data string:");
+  Serial.println(data_string);
 
   // Use WiFiClient class to create TCP connections
   WiFiClient client;
@@ -232,13 +241,13 @@ void pushData() {
   //  // We now create a URI for the request
   String url = "/input/";
 
-  String content = "temp=5.00&voltage=42.0";
+
   client.print(String("POST ") + url + " HTTP/1.1\r\n" +
                "Host: " + host + "\r\n" +
                "Accept: */*\r\n" +
-               "Content-Length: " + content.length() + "\r\n" +
+               "Content-Length: " + dstring.length() + "\r\n" +
                "Content-Type: application/x-www-form-urlencoded\r\n\r\n");
-  client.println(content);
+  client.println(dstring);
 
   delay(10);
 
