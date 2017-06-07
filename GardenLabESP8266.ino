@@ -71,8 +71,6 @@ void loop() {
       bytes_read++;
       // If we have read the whole string post it to server and acknowledge it to the Arduino
       if ( num_bytes == bytes_read ) {
-        softSerial.write('O');
-        softSerial.write('K');
         post_data(data_string);
         last_data_string = data_string;
         data_string = "";
@@ -83,10 +81,7 @@ void loop() {
 
 
   }
-
-
   handleWebServer();
-
 
 }
 
