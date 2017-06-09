@@ -1,6 +1,8 @@
 /*GardenLab ESP8266 Wemos D1 Mini
    Responsible for receiving data over serial from the Arduino and pass it on to the
    Raspberry Pi Server.
+   The Arduino controls the power for this board so to save battery it's only turned on when
+   the Arduino is ready to send data
    Quentin McDonald
    May 2017
 */
@@ -11,7 +13,6 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiUdp.h>
-#include <ArduinoOTA.h>
 #include <EEPROM.h>
 
 /* Pin definitions: */
@@ -47,9 +48,16 @@ void setup() {
   server.begin();
   Serial.println("Server started");
 
+pinMode(BUILTIN_LED, OUTPUT);
+  digitalWrite(BUILTIN_LED,LOW);
   setupWifi();
-  setupATO();
+
+
+  digitalWrite(BUILTIN_LED,HIGH);
   pinMode(2, OUTPUT);
+
+  
+ 
 }
 
 
@@ -57,20 +65,23 @@ void setup() {
 void loop() {
 
 
-  ArduinoOTA.handle();
-
+ 
   if ( softSerial.available()) {
 
     if ( num_bytes == 0 ) {
       num_bytes = (int)softSerial.read();
       Serial.print("Num bytes to read from Arduino =");
       Serial.println(num_bytes);
+       digitalWrite(BUILTIN_LED,LOW);
     } else {
       char c = softSerial.read();
       data_string += c;
       bytes_read++;
-      // If we have read the whole string post it to server and acknowledge it to the Arduino
+      // If we have read the whole string post it to server
       if ( num_bytes == bytes_read ) {
+        digitalWrite(BUILTIN_LED,HIGH);
+        delay(500);
+          digitalWrite(BUILTIN_LED,LOW);
         post_data(data_string);
         last_data_string = data_string;
         data_string = "";
@@ -81,36 +92,10 @@ void loop() {
 
 
   }
-  handleWebServer();
+ 
 
 }
 
-void setupATO() {
-  ArduinoOTA.setHostname("GardenLabESP8266");
-  ArduinoOTA.setPassword("admin");
-
-  ArduinoOTA.onStart([]() {
-    Serial.println("Start");
-  });
-  ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println("End Failed");
-  });
-  ArduinoOTA.begin();
-  Serial.println("Ready");
-  Serial.print("IPess: ");
-  Serial.println(WiFi.localIP());
-}
 
 
 
@@ -156,65 +141,6 @@ void setupWifi() {
   Serial.print(WiFi.localIP());
   Serial.println("/");
 
-}
-
-void handleWebServer() {
-  // Check if a client has connected
-  WiFiClient client = server.available();
-  if (!client) {
-    return;
-  }
-
-  rssi = WiFi.RSSI();  // eg. -63
-  wifi_strength = (100 + rssi);
-
-
-  // Wait until the client sends some data
-  Serial.println("new client");
-  while (!client.available()) {
-    delay(1);
-  }
-
-  // Read the first line of the request
-  String request = client.readStringUntil('\r');
-  Serial.println(request);
-  client.flush();
-
-  // Return the response
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: text/html");
-  client.println(""); //  do not forget this one
-  client.println("<!DOCTYPE HTML>");
-  client.println("<html>");
-  client.println("<meta http-equiv='refresh' content='120'>");
-
-  client.print("<H1>Welcome to The Garden Lab");
-  client.print(" </H1>");
-  client.print("<h3>Wifi Strength is: ");
-  client.print(wifi_strength);
-  client.print("% <br><br>");
-
-  client.print("<canvas id=\"myCanvas\" width=\"300\" height=\"15\" style=\"border:1px solid #000000;\"></canvas><br><br>");
-
-  client.print("<script>");
-  client.print("var c = document.getElementById(\"myCanvas\");");
-  client.print("var ctx = c.getContext(\"2d\");");
-  client.print("ctx.fillStyle = \"#FF0000\";");
-  wifi_strength = (int)(wifi_strength / 100.0 * 300);
-  snprintf(buff, sizeof(buff), "ctx.fillRect(0,0,%d,15);", wifi_strength);
-  client.print(buff);
-  client.println("</script></H3>");
-
-
-  client.println("<H3> Last data string </H3> <br><pre>");
-  client.println( last_data_string );
-  client.println("</pre>");
-
-  client.println("</html>");
-
-  delay(1);
-  Serial.println("Client disconnected");
-  Serial.println("");
 }
 
 
